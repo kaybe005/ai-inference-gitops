@@ -5,21 +5,66 @@ metadata:
   namespace: argocd
 spec:
   project: default
+
   source:
-    repoURL: "https://helm.openwebui.com/"
+    repoURL: https://helm.openwebui.com
     chart: open-webui
-    targetRevision: "*"
+    targetRevision: "17.0.0"
+
     helm:
       values: |
-        service:
-          type: NodePort
-          nodePort: 30090
+        # Do not install bundled inference or extension services.
         ollama:
           enabled: false
+
+        pipelines:
+          enabled: false
+
+        tika:
+          enabled: false
+
+        terminals:
+          enabled: false
+
+        # Use the in-cluster AI proxy as the OpenAI-compatible backend.
+        enableOpenaiApi: true
         openaiBaseApiUrl: "http://ai-proxy.default.svc.cluster.local:8080/v1"
+        openaiBaseApiUrls: []
+
+        # Prevent the chart default demo key from being injected.
+        openaiApiKey: ""
+        openaiApiKeyExistingSecret: ""
+
+        # Disable the bundled Redis/WebSocket dependency.
+        websocket:
+          enabled: false
+          manager: ""
+          redis:
+            enabled: false
+
+        # Keep only the Open WebUI workload and its local persistence.
+        persistence:
+          enabled: true
+          provider: local
+          size: 2Gi
+          accessModes:
+            - ReadWriteOnce
+
+        replicaCount: 1
+
+        service:
+          type: NodePort
+          port: 80
+          containerPort: 8080
+          nodePort: 30090
+
+        extraInitContainers: []
+        imagePullSecrets: []
+
   destination:
-    server: "https://kubernetes.default.svc"
+    server: https://kubernetes.default.svc
     namespace: default
+
   syncPolicy:
     automated:
       prune: true
