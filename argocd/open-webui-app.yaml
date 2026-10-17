@@ -5,6 +5,7 @@ metadata:
   namespace: argocd
 spec:
   project: default
+
   source:
     repoURL: https://helm.openwebui.com
     chart: open-webui
@@ -15,6 +16,14 @@ spec:
           repository: ghcr.io/open-webui/open-webui
           tag: "v0.5.10"
           pullPolicy: IfNotPresent
+
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
 
         tolerations:
           - operator: "Exists"
@@ -31,25 +40,16 @@ spec:
         terminals:
           enabled: false
 
-        enableOpenaiApi: true
-        openaiBaseApiUrl: "http://ai-proxy.default.svc.cluster.local:8080/v1"
-        openaiBaseApiUrls: []
-
-        openaiApiKey: ""
-        openaiApiKeyExistingSecret: ""
-
         websocket:
           enabled: false
           manager: ""
           redis:
             enabled: false
 
-        persistence:
-          enabled: true
-          provider: local
-          size: 2Gi
-          accessModes:
-            - ReadWriteOnce
+        enableOpenaiApi: true
+        openaiBaseApiUrl: "http://ai-proxy.default.svc.cluster.local:8080/v1"
+        openaiApiKey: ""
+        openaiApiKeyExistingSecret: ""
 
         replicaCount: 1
 
@@ -59,11 +59,19 @@ spec:
           containerPort: 8080
           nodePort: 30090
 
+        persistence:
+          enabled: true
+          provider: local
+          size: 2Gi
+          accessModes:
+            - ReadWriteOnce
+
         extraInitContainers: []
-        imagePullSecrets: []
+
   destination:
     server: https://kubernetes.default.svc
     namespace: default
+
   syncPolicy:
     automated:
       prune: true
