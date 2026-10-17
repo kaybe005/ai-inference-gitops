@@ -13,7 +13,11 @@ spec:
 
     helm:
       values: |
-        # Do not install bundled inference or extension services.
+        image:
+          repository: ghcr.io/open-webui/open-webui
+          tag: "v0.5.10"
+          pullPolicy: IfNotPresent
+
         ollama:
           enabled: false
 
@@ -26,23 +30,19 @@ spec:
         terminals:
           enabled: false
 
-        # Use the in-cluster AI proxy as the OpenAI-compatible backend.
         enableOpenaiApi: true
         openaiBaseApiUrl: "http://ai-proxy.default.svc.cluster.local:8080/v1"
         openaiBaseApiUrls: []
 
-        # Prevent the chart default demo key from being injected.
         openaiApiKey: ""
         openaiApiKeyExistingSecret: ""
 
-        # Disable the bundled Redis/WebSocket dependency.
         websocket:
           enabled: false
           manager: ""
           redis:
             enabled: false
 
-        # Keep only the Open WebUI workload and its local persistence.
         persistence:
           enabled: true
           provider: local
