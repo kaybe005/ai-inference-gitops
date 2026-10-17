@@ -16,14 +16,14 @@ spec:
           repository: ghcr.io/open-webui/open-webui
           tag: "v0.5.10"
           pullPolicy: IfNotPresent
-
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "256Mi"
-          limits:
-            cpu: "1000m"
-            memory: "1Gi"
+          
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
 
         tolerations:
           - operator: "Exists"
