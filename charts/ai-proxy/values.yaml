@@ -7,8 +7,8 @@ image:
 imagePullSecrets:
   - name: aws-ecr-secret
 
-backend: mock
-ollamaUrl: http://ollama:11434
+backend: "ollama"
+ollamaUrl: "http://192.168.0.179:11434"
 ollamaModel: llama3.2:latest
 service:
   type: NodePort
