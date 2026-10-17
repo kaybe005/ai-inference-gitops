@@ -18,6 +18,9 @@ spec:
           tag: "v0.5.10"
           pullPolicy: IfNotPresent
 
+        tolerations:
+          - operator: "Exists"
+
         ollama:
           enabled: false
 
