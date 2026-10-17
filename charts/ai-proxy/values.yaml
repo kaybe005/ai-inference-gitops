@@ -1,0 +1,23 @@
+replicaCount: 2
+image:
+  repository: REPLACE_WITH_ECR_REPOSITORY
+  tag: "latest"
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+backend: mock
+ollamaUrl: http://ollama:11434
+ollamaModel: llama3.2:latest
+service:
+  type: ClusterIP
+  port: 8080
+resources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: 500m, memory: 512Mi}
+podAnnotations: {}
+serviceAccount:
+  create: true
+  name: ""
+serviceMonitor:
+  enabled: false
+  labels: {}
