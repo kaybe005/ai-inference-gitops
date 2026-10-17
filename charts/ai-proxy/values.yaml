@@ -1,10 +1,12 @@
 replicaCount: 2
 image:
   repository: 220147487392.dkr.ecr.ap-southeast-2.amazonaws.com/ai-inference-proxy
-  tag: "a9eb667"
+  tag: "a9eb677"
   digest: ""
   pullPolicy: IfNotPresent
-imagePullSecrets: []
+imagePullSecrets: [
+  - name: aws-ecr-secret
+]
 backend: mock
 ollamaUrl: http://ollama:11434
 ollamaModel: llama3.2:latest
