@@ -1,7 +1,10 @@
-from time import perf_counter
+import json
+from time import perf_counter, time
+from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
@@ -19,6 +22,12 @@ class InferenceRequest(BaseModel):
 class InferenceResponse(BaseModel):
     response: str
     model: str
+
+
+class ChatCompletionRequest(BaseModel):
+    model: str | None = None
+    messages: list[dict[str, Any]] = Field(min_length=1)
+    stream: bool = False
 
 
 def create_backend() -> InferenceBackend:
@@ -52,6 +61,80 @@ async def readyz() -> dict[str, str]:
     if not await backend.ready():
         raise HTTPException(status_code=503, detail="inference backend is not ready")
     return {"status": "ready"}
+
+
+@app.get("/v1/models")
+async def list_models() -> dict[str, Any]:
+    try:
+        model_ids = await backend.list_models()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="inference backend model listing failed") from exc
+    return {
+        "object": "list",
+        "data": [
+            {"id": model_id, "object": "model", "created": 0, "owned_by": "local"}
+            for model_id in model_ids
+        ],
+    }
+
+
+@app.post("/v1/chat/completions", response_model=None)
+async def chat_completions(payload: ChatCompletionRequest) -> dict[str, Any] | StreamingResponse:
+    settings = get_settings()
+    model = payload.model or (settings.ollama_model if settings.backend == "ollama" else "mock")
+    completion_id = f"chatcmpl-{uuid4().hex}"
+    created = int(time())
+    if not payload.stream:
+        try:
+            result = await backend.chat(payload.messages, model)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="inference backend chat request failed") from exc
+        return {
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created,
+            "model": result.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": result.response},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+    stream = backend.stream_chat(payload.messages, model)
+    try:
+        first_content = await anext(stream, None)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="inference backend chat request failed") from exc
+
+    def encode_chunk(delta: dict[str, str], finish_reason: str | None = None) -> str:
+        chunk = {
+            "id": completion_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
+        }
+        return f"data: {json.dumps(chunk, separators=(',', ':'))}\n\n"
+
+    async def event_stream():
+        yield encode_chunk({"role": "assistant"})
+        if first_content:
+            yield encode_chunk({"content": first_content})
+        try:
+            async for content in stream:
+                yield encode_chunk({"content": content})
+        except Exception as exc:
+            error = {"error": {"type": "server_error", "message": str(exc)}}
+            yield f"data: {json.dumps(error, separators=(',', ':'))}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        yield encode_chunk({}, finish_reason="stop")
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/v1/inference", response_model=InferenceResponse)

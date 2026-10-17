@@ -11,26 +11,42 @@ A portfolio platform connecting a local k3s cluster on Proxmox VE to AWS ECR and
 ├── terraform/
 │   ├── bootstrap/               # One-time local-state creation of S3/DynamoDB
 │   ├── platform/                # Remote-state-backed platform root
-│   └── modules/ecr/             # Immutable ECR repository module
+│   └── modules/
+│       ├── ecr/                 # Immutable ECR repository module
+│       └── github_oidc/         # GitHub Actions OIDC role
 ├── .github/
 │   ├── copilot-instructions.md
-│   └── workflows/build-push.yml
+│   └── workflows/deploy.yml
 └── README.md
 ```
 
 ## Five-phase execution sequence
 
-1. **Application baseline:** implement and test the FastAPI proxy with mock backend; build locally for both architectures.
-2. **AWS foundation:** apply `terraform/bootstrap` once, configure the platform backend, then apply ECR and OIDC IAM with least privilege.
-3. **CI image supply chain:** configure the GitHub OIDC role ARN secret, push a commit, and verify the immutable SHA manifest and ECR scan.
-4. **Local GitOps delivery:** install ArgoCD on k3s, point it at this public repository, configure Helm values with the ECR image, and verify rolling sync/probes.
+1. **Application baseline:** run the FastAPI proxy with the mock backend. It exposes `/v1/models` and `/v1/chat/completions` for Open WebUI.
+2. **AWS foundation:** apply `terraform/bootstrap` once, configure the platform backend, then apply ECR and the GitHub OIDC role. Supply the ARN of the existing GitHub Actions OIDC provider with `github_oidc_provider_arn`.
+3. **CI image supply chain:** set the GitHub Actions secret `AWS_ROLE_ARN` to the Terraform output `github_actions_role_arn`. Allow the workflow's `GITHUB_TOKEN` to push to `main`. A push to `main` publishes an immutable SHA image and updates the chart repository and tag from the ECR login result.
+4. **Local GitOps delivery:** install ArgoCD on k3s, point it at this public repository, and verify the Open WebUI and proxy apps sync with healthy probes.
 5. **Operations:** install kube-prometheus-stack, enable the chart ServiceMonitor, add Grafana dashboards/alerts, and document recovery drills.
+
+## GitHub Actions OIDC setup
+
+The GitHub OIDC provider must already exist in the AWS account. After bootstrap and backend configuration, set its ARN for the platform Terraform root and create the role:
+
+```sh
+export TF_VAR_github_oidc_provider_arn="arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com"
+terraform -chdir=terraform/platform init
+terraform -chdir=terraform/platform apply
+terraform -chdir=terraform/platform output -raw github_actions_role_arn
+```
+
+Save the output as the repository Actions secret `AWS_ROLE_ARN`. The workflow also needs permission to push its generated values-only commit to `main`.
 
 ## Debugging checklist
 
-- **ECR pulls:** private ECR credentials expire after 12 hours. Create a least-privilege pull secret or automate refresh; verify the secret namespace and image registry hostname. For a public portfolio repository, keep the chart secret-free and document the cluster-specific secret overlay.
+- **ECR pulls:** the `aws-ecr-secret` pull secret must be refreshed because ECR credentials expire after 12 hours. Verify the secret exists in the `default` namespace and matches the registry hostname.
 - **Apple Silicon:** CI uses Buildx and QEMU to publish `linux/amd64` and `linux/arm64`. Verify the manifest with `docker buildx imagetools inspect`; avoid architecture-specific wheels or binaries.
-- **ArgoCD loops:** use immutable SHA tags/digests, keep generated resources out of Git, avoid mutating Helm output in-cluster, and use `ignoreDifferences` only for a known controller-owned field.
-- **Terraform locking:** bootstrap before initializing the platform backend. Never run concurrent applies. For a lock error, inspect the lock owner and running processes before using `force-unlock`.
-- **Ollama reachability:** `localhost` in a pod is the pod, not the Proxmox host. Use a routable service/DNS address and NetworkPolicy/firewall rules; keep mock mode as the deterministic fallback.
-- **OIDC failures:** confirm the GitHub `sub` condition matches the repository/branch and that the workflow has `id-token: write`; do not replace OIDC with static keys.
+- **Model discovery:** request `http://ai-proxy.default.svc.cluster.local:8080/v1/models` from inside the cluster. The result lists models installed in Ollama. `DEFAULT_MODELS` only preselects an available model; it does not install one. On the Ollama host, run `ollama list` and, if needed, `ollama pull llama3.2:3b`.
+- **ArgoCD image updates:** the publish workflow commits the new immutable SHA tag to `charts/ai-proxy/values.yaml`. It ignores changes that only update that file, preventing a build loop.
+- **Terraform locking:** the platform uses S3 native lock files and requires Terraform 1.10 or newer. Bootstrap before initializing the platform backend. Never run concurrent applies. For a lock error, inspect the lock owner and running processes before using `force-unlock`.
+- **Ollama reachability:** `localhost` in a pod is the pod, not the Proxmox host. `charts/ai-proxy/values.yaml` must point to an Ollama endpoint reachable from the pod network; keep mock mode as the deterministic fallback.
+- **OIDC failures:** confirm the existing AWS GitHub OIDC provider ARN is passed to Terraform, `AWS_ROLE_ARN` matches the Terraform output, and the role trust subject matches this repository's `main` branch. The workflow does not use static AWS access keys.

@@ -21,14 +21,6 @@ variable "ecr_repository_arn" {
   type = string
 }
 
-variable "state_bucket_arn" {
-  type = string
-}
-
-variable "lock_table_arn" {
-  type = string
-}
-
 resource "aws_iam_role" "github_actions" {
   name = var.role_name
 
@@ -53,7 +45,7 @@ resource "aws_iam_role" "github_actions" {
 }
 
 resource "aws_iam_role_policy" "github_actions" {
-  name = "github-actions-ecr-and-state"
+  name = "github-actions-ecr-push"
   role = aws_iam_role.github_actions.id
 
   policy = jsonencode({
@@ -70,18 +62,6 @@ resource "aws_iam_role_policy" "github_actions" {
         Effect   = "Allow"
         Action   = ["ecr:GetAuthorizationToken"]
         Resource = "*"
-      },
-      {
-        Sid      = "TerraformState"
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
-        Resource = [var.state_bucket_arn, "${var.state_bucket_arn}/*"]
-      },
-      {
-        Sid      = "TerraformLocks"
-        Effect   = "Allow"
-        Action   = ["dynamodb:DescribeTable", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
-        Resource = var.lock_table_arn
       }
     ]
   })

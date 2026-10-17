@@ -12,6 +12,8 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_s3_bucket" "state" {
   bucket = var.state_bucket
 }
