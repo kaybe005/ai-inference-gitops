@@ -30,7 +30,7 @@ A portfolio platform connecting a local k3s cluster on Proxmox VE to AWS ECR and
 
 ## GitHub Actions OIDC setup
 
-The GitHub OIDC provider must already exist in the AWS account. After bootstrap and backend configuration, set its ARN for the platform Terraform root and create the role:
+The GitHub OIDC provider must already exist in the AWS account, with `sts.amazonaws.com` in its client ID list. After bootstrap and backend configuration, set its ARN for the platform Terraform root and create the role. The role trust uses this repository's immutable GitHub subject claim, including its owner and repository IDs:
 
 ```sh
 export TF_VAR_github_oidc_provider_arn="arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com"
@@ -39,7 +39,7 @@ terraform -chdir=terraform/platform apply
 terraform -chdir=terraform/platform output -raw github_actions_role_arn
 ```
 
-Save the output as the repository Actions secret `AWS_ROLE_ARN`. The workflow also needs permission to push its generated values-only commit to `main`.
+Save the output as the repository Actions secret `AWS_ROLE_ARN`. If this repository is renamed, transferred, or its OIDC subject template changes, update `github_oidc_subject` to the exact claim GitHub issues. The workflow also needs permission to push its generated values-only commit to `main`.
 
 ## Debugging checklist
 
@@ -49,4 +49,4 @@ Save the output as the repository Actions secret `AWS_ROLE_ARN`. The workflow al
 - **ArgoCD image updates:** the publish workflow commits the new immutable SHA tag to `charts/ai-proxy/values.yaml`. It ignores changes that only update that file, preventing a build loop.
 - **Terraform locking:** the platform uses S3 native lock files and requires Terraform 1.10 or newer. Bootstrap before initializing the platform backend. Never run concurrent applies. For a lock error, inspect the lock owner and running processes before using `force-unlock`.
 - **Ollama reachability:** `localhost` in a pod is the pod, not the Proxmox host. `charts/ai-proxy/values.yaml` must point to an Ollama endpoint reachable from the pod network; keep mock mode as the deterministic fallback.
-- **OIDC failures:** confirm the existing AWS GitHub OIDC provider ARN is passed to Terraform, `AWS_ROLE_ARN` matches the Terraform output, and the role trust subject matches this repository's `main` branch. The workflow does not use static AWS access keys.
+- **OIDC failures:** confirm the AWS GitHub OIDC provider URL is `https://token.actions.githubusercontent.com`, its client ID list contains `sts.amazonaws.com`, `AWS_ROLE_ARN` matches the Terraform output, and the role trust subject matches this repository's immutable `main`-branch subject. The workflow does not use static AWS access keys.

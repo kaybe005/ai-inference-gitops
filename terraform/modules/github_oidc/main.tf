@@ -7,14 +7,9 @@ variable "oidc_provider_arn" {
   description = "Existing GitHub Actions OIDC provider ARN in the AWS account."
 }
 
-variable "repository" {
+variable "oidc_subject" {
   type        = string
-  description = "GitHub owner/repository, for example kaybe005/ai-inference-gitops."
-}
-
-variable "branch" {
-  type    = string
-  default = "main"
+  description = "Exact GitHub OIDC subject claim allowed to assume this role."
 }
 
 variable "ecr_repository_arn" {
@@ -35,9 +30,7 @@ resource "aws_iam_role" "github_actions" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-        }
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.repository}:ref:refs/heads/${var.branch}"
+          "token.actions.githubusercontent.com:sub" = var.oidc_subject
         }
       }
     }]

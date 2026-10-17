@@ -13,7 +13,8 @@ variable "github_oidc_provider_arn" {
   description = "Existing IAM OIDC provider ARN for token.actions.githubusercontent.com."
 }
 
-variable "github_repository" {
-  type    = string
-  default = "kaybe005/ai-inference-gitops"
+variable "github_oidc_subject" {
+  type        = string
+  description = "Exact OIDC sub claim for the GitHub Actions workflow allowed to publish images."
+  default     = "repo:kaybe005@190797454/ai-inference-gitops@1422890393:ref:refs/heads/main"
 }
