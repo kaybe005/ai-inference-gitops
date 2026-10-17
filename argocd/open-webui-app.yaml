@@ -5,12 +5,10 @@ metadata:
   namespace: argocd
 spec:
   project: default
-
   source:
     repoURL: https://helm.openwebui.com
     chart: open-webui
     targetRevision: "17.0.0"
-
     helm:
       values: |
         image:
@@ -63,11 +61,9 @@ spec:
 
         extraInitContainers: []
         imagePullSecrets: []
-
   destination:
     server: https://kubernetes.default.svc
     namespace: default
-
   syncPolicy:
     automated:
       prune: true
