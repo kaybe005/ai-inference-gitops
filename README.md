@@ -1,52 +1,70 @@
-# GitOps-Driven AI Inference Microservice Platform
+# Self-Hosted GitOps AI Inference Platform
 
-A portfolio platform connecting a local k3s cluster on Proxmox VE to AWS ECR and Terraform-managed cloud foundations.
+A local AI inference stack on a CPU-only Proxmox homelab, with GitHub Actions providing cloud-based image builds and ArgoCD managing Kubernetes deployments. The deployment uses rolling updates and health checks to support zero-downtime releases while keeping model inference on-premises.
 
-## Repository tree
+The platform runs on a Dell OptiPlex server. A Proxmox VM hosts a `k3s` cluster and a native Ollama service; Open WebUI provides the chat interface, and a custom FastAPI proxy connects it to the local model.
 
-```text
-.
-├── app/                         # FastAPI proxy, backend adapters, tests, image
-├── charts/ai-proxy/             # Helm deployment contract for ArgoCD
-├── terraform/
-│   ├── bootstrap/               # One-time local-state creation of S3/DynamoDB
-│   ├── platform/                # Remote-state-backed platform root
-│   └── modules/
-│       ├── ecr/                 # Immutable ECR repository module
-│       └── github_oidc/         # GitHub Actions OIDC role
-├── .github/
-│   ├── copilot-instructions.md
-│   └── workflows/deploy.yml
-└── README.md
+## Architecture
+
+```mermaid
+flowchart LR
+    Dev[Code and Helm chart changes] --> GitHub[GitHub repository]
+    GitHub --> Actions[GitHub Actions<br/>build container image]
+    Actions --> ECR[Private AWS ECR]
+    GitHub --> Argo[ArgoCD<br/>watches Helm chart]
+    Argo --> K3s[k3s in Proxmox VM]
+    ECR -->|Image pull using aws-ecr-secret| K3s
+    K3s -->|Deploys proxy pods| API[FastAPI proxy]
+    WebUI[Open WebUI] -->|Chat prompts| API
+    API -->|Inference requests| Ollama[Native Ollama service<br/>VM network interface]
+    Ollama --> Model[llama3.2:1b<br/>CPU inference]
+
+    subgraph Homelab[ Dell OptiPlex homelab · Proxmox ]
+        K3s
+        WebUI
+        API
+        Ollama
+        Model
+    end
 ```
 
-## Five-phase execution sequence
+GitHub Actions builds and publishes the FastAPI image to ECR. ArgoCD watches the repository’s Helm chart and reconciles the `k3s` cluster. Open WebUI sends chat prompts through the proxy to Ollama, which runs locally on the VM.
 
-1. **Application baseline:** run the FastAPI proxy with the mock backend. It exposes `/v1/models` and `/v1/chat/completions` for Open WebUI.
-2. **AWS foundation:** apply `terraform/bootstrap` once, configure the platform backend, then apply ECR and the GitHub OIDC role. Supply the ARN of the existing GitHub Actions OIDC provider with `github_oidc_provider_arn`.
-3. **CI image supply chain:** set the GitHub Actions secret `AWS_ROLE_ARN` to the Terraform output `github_actions_role_arn`. Allow the workflow's `GITHUB_TOKEN` to push to `main`. A push to `main` publishes an immutable SHA image and updates the chart repository and tag from the ECR login result.
-4. **Local GitOps delivery:** install ArgoCD on k3s, point it at this public repository, and verify the Open WebUI and proxy apps sync with healthy probes.
-5. **Operations:** install kube-prometheus-stack, enable the chart ServiceMonitor, add Grafana dashboards/alerts, and document recovery drills.
+## Core Technologies
 
-## GitHub Actions OIDC setup
+| Category | Technologies |
+| --- | --- |
+| Infrastructure | Dell OptiPlex homelab, Proxmox, local `k3s` Kubernetes cluster |
+| CI/CD | GitHub Actions, ArgoCD, private AWS ECR |
+| Application | FastAPI Python proxy, Open WebUI |
+| AI | Native Ollama service, Meta `llama3.2:1b`, CPU inference |
 
-The GitHub OIDC provider must already exist in the AWS account, with `sts.amazonaws.com` in its client ID list. After bootstrap and backend configuration, set its ARN for the platform Terraform root and create the role. The role trust uses this repository's immutable GitHub subject claim, including its owner and repository IDs:
+## Key Engineering Highlights & Problem Solving
 
-```sh
-export TF_VAR_github_oidc_provider_arn="arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com"
-terraform -chdir=terraform/platform init
-terraform -chdir=terraform/platform apply
-terraform -chdir=terraform/platform output -raw github_actions_role_arn
-```
+### ECR authentication under AWS Organizations SCP restrictions
 
-Save the output as the repository Actions secret `AWS_ROLE_ARN`. If this repository is renamed, transferred, or its OIDC subject template changes, update `github_oidc_subject` to the exact claim GitHub issues. The workflow also needs permission to push its generated values-only commit to `main`.
+AWS Organizations Service Control Policy (SCP) restrictions blocked the standard GitHub Actions OIDC federation path. The deployment switched to static AWS IAM credentials, securely injected into Kubernetes secrets and used by the configured `aws-ecr-secret`. This resolved `403 Forbidden` errors when `k3s` pulled images from private ECR.
 
-## Debugging checklist
+### Ollama network binding and readiness checks
 
-- **ECR pulls:** the `aws-ecr-secret` pull secret must be refreshed because ECR credentials expire after 12 hours. Verify the secret exists in the `default` namespace and matches the registry hostname.
-- **Apple Silicon:** CI uses Buildx and QEMU to publish `linux/amd64` and `linux/arm64`. Verify the manifest with `docker buildx imagetools inspect`; avoid architecture-specific wheels or binaries.
-- **Model discovery:** request `http://ai-proxy.default.svc.cluster.local:8080/v1/models` from inside the cluster. The result lists models installed in Ollama. `DEFAULT_MODELS` only preselects an available model; it does not install one. On the Ollama host, run `ollama list` and, if needed, `ollama pull llama3.2:3b`.
-- **ArgoCD image updates:** the publish workflow commits the new immutable SHA tag to `charts/ai-proxy/values.yaml`. It ignores changes that only update that file, preventing a build loop.
-- **Terraform locking:** the platform uses S3 native lock files and requires Terraform 1.10 or newer. Bootstrap before initializing the platform backend. Never run concurrent applies. For a lock error, inspect the lock owner and running processes before using `force-unlock`.
-- **Ollama reachability:** `localhost` in a pod is the pod, not the Proxmox host. `charts/ai-proxy/values.yaml` must point to an Ollama endpoint reachable from the pod network; keep mock mode as the deterministic fallback.
-- **OIDC failures:** confirm the AWS GitHub OIDC provider URL is `https://token.actions.githubusercontent.com`, its client ID list contains `sts.amazonaws.com`, `AWS_ROLE_ARN` matches the Terraform output, and the role trust subject matches this repository's immutable `main`-branch subject. The workflow does not use static AWS access keys.
+Kubernetes readiness probes initially returned `503` because Ollama’s systemd service listened only on `127.0.0.1`. Reconfiguring Ollama to listen on `0.0.0.0` made it reachable over the VM network from the cluster. The proxy’s `/readyz` probe checks that Ollama is reachable and the model is loaded before the pod accepts traffic; `/healthz` provides a health check.
+
+### Model selection for CPU-only inference
+
+The initial `llama3.2:3b` deployment was bottlenecked by CPU inference, reaching approximately 15 seconds per word. A GitOps configuration rollout changed the model to `llama3.2:1b`, enabling functional, low-latency streaming inference on the available CPU-only hardware.
+
+## Deployment & Workflow
+
+1. A FastAPI proxy change is pushed to the GitHub repository.
+2. GitHub Actions builds the container image and pushes it to the private AWS ECR repository.
+3. ArgoCD continuously monitors the repository for Helm chart updates.
+4. When chart changes are available, ArgoCD syncs the desired state to the `k3s` cluster in the Proxmox VM.
+5. Kubernetes pulls the proxy image from ECR using the configured `aws-ecr-secret` and deploys the updated pods.
+6. A rolling update with `maxSurge: 1` starts replacement capacity while `/healthz` and `/readyz` probes check pod health and Ollama readiness.
+7. Open WebUI routes chat prompts through the FastAPI proxy to the native Ollama service and `llama3.2:1b` model.
+
+## Future Improvements
+
+- Migrate from static AWS IAM credentials to GitHub Actions OIDC federation when AWS Organizations SCP restrictions allow it.
+- Add Prometheus and Grafana for observability.
+- Implement GPU PCIe passthrough to accelerate inference.
