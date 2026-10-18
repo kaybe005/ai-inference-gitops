@@ -9,7 +9,7 @@ imagePullSecrets:
 
 backend: "ollama"
 ollamaUrl: "http://192.168.0.179:11434"
-ollamaModel: llama3.2:3b
+ollamaModel: llama3.2:1b
 service:
   type: NodePort
   port: 8080
