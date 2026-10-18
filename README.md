@@ -32,12 +32,12 @@ GitHub Actions builds and publishes the FastAPI image to ECR. ArgoCD watches the
 
 ## Core Technologies
 
-| Category | Technologies |
-| --- | --- |
+| Category       | Technologies                                                   |
+| -------------- | -------------------------------------------------------------- |
 | Infrastructure | Dell OptiPlex homelab, Proxmox, local `k3s` Kubernetes cluster |
-| CI/CD | GitHub Actions, ArgoCD, private AWS ECR |
-| Application | FastAPI Python proxy, Open WebUI |
-| AI | Native Ollama service, Meta `llama3.2:1b`, CPU inference |
+| CI/CD          | GitHub Actions, ArgoCD, private AWS ECR                        |
+| Application    | FastAPI Python proxy, Open WebUI                               |
+| AI             | Native Ollama service, Meta `llama3.2:1b`, CPU inference       |
 
 ## Key Engineering Highlights & Problem Solving
 
@@ -52,6 +52,20 @@ Kubernetes readiness probes initially returned `503` because Ollama’s systemd 
 ### Model selection for CPU-only inference
 
 The initial `llama3.2:3b` deployment was bottlenecked by CPU inference, reaching approximately 15 seconds per word. A GitOps configuration rollout changed the model to `llama3.2:1b`, enabling functional, low-latency streaming inference on the available CPU-only hardware.
+
+## System Demonstration
+
+### Open WebUI Inference
+
+![Open WEBUI Chat](assets/openuiweb.png)
+
+### Kubernetes Cluster State
+
+![Kubectl Terminal](assets/pods.png)
+
+### Github Actions CI Pipeline
+
+![Github Actions](assets/workflows.png)
 
 ## Deployment & Workflow
 
